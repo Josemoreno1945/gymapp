@@ -25,7 +25,9 @@ const PORT = process.env.PORT || 3001;
 
 // ─── Middleware ──────────────────────────────────────────────
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  origin: process.env.NODE_ENV === 'production' 
+    ? 'https://gymtrackerappl.netlify.app' 
+    : (process.env.CORS_ORIGIN || 'http://localhost:5173'),
   credentials: true,
 }));
 app.use(express.json());
