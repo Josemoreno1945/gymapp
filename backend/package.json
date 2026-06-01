@@ -1,0 +1,24 @@
+{
+  "name": "neonbench-backend",
+  "version": "1.0.0",
+  "description": "NeonBench SaaS Backend — Node.js + Express + SQLite",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "seed": "node src/db/seed.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "zod": "^3.25.32"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
