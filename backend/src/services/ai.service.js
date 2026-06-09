@@ -1,28 +1,65 @@
 // ============================================================
 // AI Service — Business Metrics Agent
-// System Prompts + Data queries + structured JSON responses
+// Sistema de agentes IA para automatización de emprendimiento de gimnasio
+// Formato de prompts basado en la metodología del PDF:
+// [Rol] → [Contexto] → [Reglas fijas] → [IA de apoyo] → [Formato] → [Fallos]
 // ============================================================
 
 import TrainingLogModel from '../models/trainingLog.model.js';
 import UserModel from '../models/user.model.js';
 
-// ─── System Prompts ──────────────────────────────────────────
+// ─── Detector de intención del usuario ────────────────────────────────────────
+// Clasifica el mensaje del usuario en: CONSULTA | PEDIDO | RECLAMO | ALERTA | ANALISIS
+export function detectarIntencion(mensaje) {
+  const texto = mensaje.toLowerCase();
+
+  // Patrones de RECLAMO
+  if (/no funciona|error|mal|falla|problema|queja|reclamo|molest|harto/.test(texto)) {
+    return 'RECLAMO';
+  }
+  // Patrones de PEDIDO / acción concreta
+  if (/registra|anota|agrega|guarda|añade|nuevo|quiero|pedir|crea|crear/.test(texto)) {
+    return 'PEDIDO';
+  }
+  // Patrones de ALERTA de negocio
+  if (/abandono|churn|retención|riesgo|alerta|urgente|crítico/.test(texto)) {
+    return 'ALERTA';
+  }
+  // Patrones de ANALISIS profundo
+  if (/analiza|análisis|tendencia|reporte|informe|estadística|comparar|metrics/.test(texto)) {
+    return 'ANALISIS';
+  }
+  // Por defecto: CONSULTA informativa
+  return 'CONSULTA';
+}
+
+// ─── System Prompts (Métricas de negocio — Agente NEXUS) ─────
+// Formato: [Rol][Contexto][Reglas fijas][IA de apoyo][Formato][Fallos]
 
 const SYSTEM_PROMPT_RETENTION = `
-Eres un analista de datos de fitness empresarial. Tu tarea es analizar patrones de 
-retención y abandono (churn) de usuarios de un gimnasio.
+[Rol]
+Eres el módulo de análisis de retención de NEXUS, agente IA de NeonBench Gym.
+Tu función es procesar datos de usuarios del gimnasio y clasificar su estado de actividad.
 
-DATOS DE ENTRADA: Recibirás datos JSON con:
-- Lista de usuarios con su fecha de registro y último registro de entrenamiento
+[Contexto]
+Tienes acceso a datos de todos los usuarios registrados incluyendo:
+- Fecha de registro al gimnasio
+- Fecha de su último entrenamiento registrado
 - Umbral de inactividad configurable (default: 14 días)
 
-REGLAS DE CLASIFICACIÓN:
-- ACTIVO: Tiene registro en los últimos {umbral} días
-- EN RIESGO: No tiene registro en {umbral} a {umbral*2} días  
-- ABANDONADO (CHURNED): Sin registro en más de {umbral*2} días
-- NUEVO: Registrado en los últimos 7 días sin logs aún
+[Reglas fijas]
+1. Si el usuario tiene registro en los últimos {umbral} días → clasificar como ACTIVO.
+2. Si no tiene registro en {umbral} a {umbral*2} días → clasificar como EN_RIESGO.
+3. Si no tiene registro en más de {umbral*2} días → clasificar como ABANDONADO (CHURNED).
+4. Si se registró en los últimos 7 días sin logs aún → clasificar como NUEVO.
+5. Si la tasa de churn supera el 30% → incluir ALERTA CRÍTICA en recomendaciones.
+6. Nunca inventes usuarios ni datos; solo clasifica los provistos.
 
-SALIDA REQUERIDA (JSON estricto):
+[IA de apoyo]
+- Gemini 2.5 Flash procesa el JSON de entrada y genera la clasificación y recomendaciones.
+
+[Formato de respuesta]
+JSON estricto sin bloques markdown:
 {
   "resumen": {
     "total_usuarios": number,
@@ -38,18 +75,34 @@ SALIDA REQUERIDA (JSON estricto):
   "recomendaciones": [string]
 }
 
-Responde ÚNICAMENTE con el JSON, sin texto adicional ni bloques de código markdown.
+[Manejo de fallos]
+Si los datos están vacíos o son insuficientes, devuelve el JSON con ceros y en recomendaciones
+indica: "No hay datos suficientes para análisis. Registra actividad de usuarios primero."
 `.trim();
 
 const SYSTEM_PROMPT_PEAK_HOURS = `
-Eres un analista de operaciones de un gimnasio. Tu tarea es identificar los patrones 
-horarios de uso basándote en los timestamps de registros de entrenamiento.
+[Rol]
+Eres el módulo de análisis de horarios de NEXUS, agente IA de NeonBench Gym.
+Tu función es identificar los patrones horarios de uso del gimnasio para optimizar operaciones.
 
-DATOS DE ENTRADA: Recibirás datos JSON con:
-- Conteo de registros agrupados por hora del día (0-23)
-- Conteo por día de la semana (Lunes-Domingo)
+[Contexto]
+Tienes acceso a datos de uso agrupados por:
+- Hora del día (0-23h)
+- Día de la semana (Lunes-Domingo)
 
-SALIDA REQUERIDA (JSON estricto):
+[Reglas fijas]
+1. Si una hora supera el 80% del máximo de registros → clasificar como 'pico'.
+2. Si supera el 50% → clasificar como 'alta'.
+3. Si supera el 20% → clasificar como 'media'.
+4. Si es menor al 20% → clasificar como 'baja'.
+5. Identificar las franjas horarias con más y menos actividad para recomendaciones de personal.
+6. Nunca inventes datos; si no hay registros en una hora, reportar 0.
+
+[IA de apoyo]
+- Gemini 2.5 Flash procesa la distribución y genera recomendaciones operativas.
+
+[Formato de respuesta]
+JSON estricto sin bloques markdown:
 {
   "hora_pico": { "hora": number, "registros": number, "pct_del_total": number },
   "top_3_horas": [{ "hora": number, "registros": number, "pct_del_total": number }],
@@ -64,42 +117,47 @@ SALIDA REQUERIDA (JSON estricto):
   "recomendaciones": [string]
 }
 
-Responde ÚNICAMENTE con el JSON, sin texto adicional ni bloques de código markdown.
+[Manejo de fallos]
+Si no hay registros de uso, devuelve ceros y en recomendaciones: "Sin datos de uso. Los patrones
+horarios se generarán automáticamente cuando los usuarios registren entrenamientos."
 `.trim();
 
 const SYSTEM_PROMPT_ENGAGEMENT = `
-Eres un analista de engagement de un gimnasio. Tu tarea es calcular índices de 
-enganche individuales y grupales.
+[Rol]
+Eres el módulo de análisis de engagement de NEXUS, agente IA de NeonBench Gym.
+Tu función es calcular el índice de compromiso (engagement) de los miembros del gimnasio.
 
-DATOS DE ENTRADA: Recibirás datos JSON con:
-- Frecuencia de entrenamientos por usuario (semanal/mensual)
-- Variedad de ejercicios por usuario
-- Consistencia (semanas consecutivas con al menos 1 log)
-- Volumen total y progresión de peso
+[Contexto]
+Tienes acceso a métricas de entrenamiento por usuario:
+- Frecuencia semanal de entrenamientos registrados
+- Variedad de ejercicios practicados
+- Consistencia (semanas activas vs semanas totales)
+- Volumen total de entrenamiento (series × reps × peso)
 
-FÓRMULA DE ENGAGEMENT SCORE (0-100):
-- Frecuencia semanal (peso: 35%): (logs_por_semana / target_semanal) * 35 (cap at 35)
-- Consistencia (peso: 25%): (semanas_activas / semanas_totales) * 25
-- Variedad (peso: 20%): (ejercicios_únicos / umbral_variedad) * 20 (cap at 20)
-- Progresión (peso: 20%): tiene_progresion_positiva ? 20 : 10
+[Reglas fijas]
+1. Calcular score con la fórmula: Frecuencia(35%) + Consistencia(25%) + Variedad(20%) + Progresión(20%).
+2. Si score >= 80 → clasificar como 'excepcional'.
+3. Si score >= 60 y < 80 → clasificar como 'alto'.
+4. Si score >= 40 y < 60 → clasificar como 'medio'.
+5. Si score < 40 → clasificar como 'bajo'. Incluir en recomendaciones contacto urgente.
+6. Si hay más de 3 usuarios con score < 40 → ALERTA de desengagement grupal.
+7. Nunca evalúes usuarios sin datos de entrenamiento.
 
-Clasificación:
-- 80-100: "excepcional"
-- 60-79: "alto"
-- 40-59: "medio"
-- 0-39: "bajo"
+[IA de apoyo]
+- Gemini 2.5 Flash procesa los datos de cada usuario y genera el ranking y recomendaciones personalizadas.
 
-SALIDA REQUERIDA (JSON estricto):
+[Formato de respuesta]
+JSON estricto sin bloques markdown:
 {
   "engagement_grupal": {
     "score_promedio": number,
     "clasificacion": "bajo|medio|alto|excepcional",
     "total_evaluados": number
   },
-  "ranking_usuarios": [{ 
-    "id": number, "nombre": string, "score": number, "clasificacion": string, 
-    "frecuencia_semanal": number, "consistencia_pct": number, "ejercicios_unicos": number 
-  }],
+  "ranking_usuarios": [
+    { "id": number, "nombre": string, "score": number, "clasificacion": string,
+      "frecuencia_semanal": number, "consistencia_pct": number, "ejercicios_unicos": number }
+  ],
   "distribucion": {
     "excepcional_80_100": number,
     "alto_60_80": number,
@@ -110,7 +168,9 @@ SALIDA REQUERIDA (JSON estricto):
   "recomendaciones": [string]
 }
 
-Responde ÚNICAMENTE con el JSON, sin texto adicional ni bloques de código markdown.
+[Manejo de fallos]
+Si no hay usuarios con datos de entrenamiento, devuelve ceros. En recomendaciones:
+"Sin datos de engagement. El score se calcula una vez que los usuarios comiencen a registrar entrenamientos."
 `.trim();
 
 // ─── Data Collectors ─────────────────────────────────────────
@@ -550,10 +610,12 @@ export const AIService = {
   },
 
   /**
-   * Expose system prompts for transparency/debugging.
+   * Expose ALL system prompts for transparency/debugging.
+   * Includes both metrics prompts and conversational agent prompts.
    */
   getSystemPrompts() {
     return {
+      // Agente NEXUS (Admin) — Métricas de negocio
       retention: SYSTEM_PROMPT_RETENTION,
       peak_hours: SYSTEM_PROMPT_PEAK_HOURS,
       engagement: SYSTEM_PROMPT_ENGAGEMENT,

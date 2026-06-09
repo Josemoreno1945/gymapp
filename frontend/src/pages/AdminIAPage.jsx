@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { BrainCircuit, Send, User, Loader2, Zap, TrendingDown, Clock, Flame, BarChart2, ChevronRight } from 'lucide-react';
+import { BrainCircuit, Send, User, Loader2, Zap, TrendingDown, Clock, Flame, ChevronRight, History, AlertTriangle, CheckCircle, XCircle, MessageSquare, RefreshCw } from 'lucide-react';
 import api from '../api/client';
 import { useErrorModal } from '../context/ErrorModalContext';
 import ReactMarkdown from 'react-markdown';
@@ -118,7 +118,139 @@ function MetricPanel({ data, type }) {
   return null;
 }
 
-// ─── Message Bubble ───────────────────────────────────────────
+// ─── Interaction History Panel ──────────────────────────────────────────────
+function HistoryPanel() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const { showError } = useErrorModal();
+
+  const INTENCION_COLORS = {
+    CONSULTA:  { text: 'text-[#42ffe0]',  bg: 'bg-[#42ffe0]/10',  label: 'CONSULTA'  },
+    PEDIDO:    { text: 'text-[#00ff66]',  bg: 'bg-[#00ff66]/10',  label: 'PEDIDO'    },
+    RECLAMO:   { text: 'text-[#ff2d78]',  bg: 'bg-[#ff2d78]/10',  label: 'RECLAMO'   },
+    ALERTA:    { text: 'text-[#ffa500]',  bg: 'bg-[#ffa500]/10',  label: 'ALERTA'    },
+    ANALISIS:  { text: 'text-[#bf5af2]',  bg: 'bg-[#bf5af2]/10',  label: 'ANÁLISIS'  },
+  };
+
+  const fetchHistory = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get('/ai/interactions?limit=30');
+      setData(res.data);
+    } catch (err) {
+      showError(err.response?.data?.error || 'Error al cargar el historial.', 'Error Historial');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { fetchHistory(); }, []);
+
+  if (loading) return (
+    <div className="flex items-center justify-center py-20 gap-3 text-[#bf5af2] font-mono text-sm">
+      <Loader2 size={18} className="animate-spin" /> Cargando historial de interacciones...
+    </div>
+  );
+
+  if (!data) return null;
+
+  const { estadisticas, intenciones, interacciones } = data;
+
+  return (
+    <div className="flex flex-col gap-4 animate-fade-in">
+      {/* Stats Row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          { label: 'Total Interacciones', value: estadisticas?.total ?? 0, color: 'text-white' },
+          ...(estadisticas?.por_agente ?? []).map(a => ({
+            label: `Agente ${a.agente_tipo}`,
+            value: a.total,
+            color: a.agente_tipo === 'ADMIN' ? 'text-[#bf5af2]' : 'text-[#42ffe0]',
+          })),
+          { label: 'No Resueltos', value: (estadisticas?.por_agente ?? []).reduce((s, a) => s + (a.derivados || 0), 0), color: 'text-[#ff2d78]' },
+        ].map(({ label, value, color }) => (
+          <div key={label} className="bg-[#080808] rounded-xl p-3 border border-neutral-900">
+            <span className="font-mono text-[9px] text-neutral-600 uppercase tracking-widest block mb-1">{label}</span>
+            <span className={`font-mono text-2xl font-black ${color}`}>{value}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Intent Breakdown */}
+      {intenciones?.length > 0 && (
+        <div className="bg-[#080808] rounded-xl p-4 border border-neutral-900">
+          <p className="font-mono text-[10px] text-neutral-500 uppercase tracking-widest mb-3">Distribución de Intenciones Detectadas</p>
+          <div className="flex flex-wrap gap-2">
+            {intenciones.map(i => {
+              const c = INTENCION_COLORS[i.intencion] || INTENCION_COLORS.CONSULTA;
+              return (
+                <div key={i.intencion} className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${c.bg} ${c.text} border-current/20`}>
+                  <span className="font-mono text-xs font-bold">{c.label}</span>
+                  <span className="font-mono text-xs opacity-70">{i.total} ({i.porcentaje}%)</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Interactions Table */}
+      <div className="glass-card rounded-xl border border-[#bf5af2]/20 overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[#bf5af2]/10">
+          <p className="font-mono text-[10px] text-neutral-500 uppercase tracking-widest flex items-center gap-2">
+            <History size={12} className="text-[#bf5af2]" /> Últimas {interacciones.length} interacciones guardadas
+          </p>
+          <button onClick={fetchHistory} className="text-neutral-600 hover:text-[#bf5af2] transition-colors">
+            <RefreshCw size={13} />
+          </button>
+        </div>
+        <div className="divide-y divide-neutral-900 max-h-[400px] overflow-y-auto">
+          {interacciones.length === 0 ? (
+            <p className="font-mono text-neutral-600 text-sm text-center py-10">No hay interacciones registradas todavía.</p>
+          ) : interacciones.map(item => {
+            const c = INTENCION_COLORS[item.intencion] || INTENCION_COLORS.CONSULTA;
+            return (
+              <div key={item.id} className="px-4 py-3 hover:bg-[#bf5af2]/5 transition-colors">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={`font-mono text-[9px] px-2 py-0.5 rounded-full border ${c.bg} ${c.text} border-current/20`}>{c.label}</span>
+                    <span className={`font-mono text-[9px] px-2 py-0.5 rounded-full ${
+                      item.agente_tipo === 'ADMIN' ? 'bg-[#bf5af2]/10 text-[#bf5af2]' : 'bg-[#42ffe0]/10 text-[#42ffe0]'
+                    }`}>{item.agente_tipo}</span>
+                    {item.resuelto === 0 && (
+                      <span className="font-mono text-[9px] px-2 py-0.5 rounded-full bg-[#ff2d78]/10 text-[#ff2d78] flex items-center gap-1">
+                        <XCircle size={9} /> Derivado
+                      </span>
+                    )}
+                    {item.resuelto === 1 && (
+                      <span className="font-mono text-[9px] px-2 py-0.5 rounded-full bg-[#00ff66]/10 text-[#00ff66] flex items-center gap-1">
+                        <CheckCircle size={9} /> Resuelto
+                      </span>
+                    )}
+                  </div>
+                  <span className="font-mono text-[9px] text-neutral-700 shrink-0">
+                    {item.created_at?.slice(0, 16).replace('T', ' ')}
+                  </span>
+                </div>
+                <p className="font-mono text-xs text-neutral-400 mt-1.5 truncate">
+                  <MessageSquare size={10} className="inline mr-1 opacity-50" />
+                  {item.usuario_nombre ? `[${item.usuario_nombre}]` : '[Admin]'} {item.mensaje_usuario}
+                </p>
+                {item.accion_tomada && (
+                  <p className="font-mono text-[10px] text-neutral-700 mt-1">
+                    ✓ {item.accion_tomada}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Message Bubble ─────────────────────────────────────────────────
 function MessageBubble({ msg }) {
   const isUser = msg.role === 'user';
   return (
@@ -151,15 +283,17 @@ function MessageBubble({ msg }) {
 
 // ─── Main Component ───────────────────────────────────────────
 export default function AdminIAPage() {
+  const [activeTab, setActiveTab] = useState('chat'); // 'chat' | 'history'
   const [messages, setMessages] = useState([
     {
       role: 'ai',
-      content: '⚡ **NEXUS online.** Soy tu agente analítico de negocio. Tengo acceso en tiempo real a los datos de retención, horas pico y engagement de todos tus clientes.\n\n¿Qué métrica quieres analizar hoy? Usa los botones de consulta rápida o hazme una pregunta directamente.',
+      content: '⚡ **NEXUS online.** Soy tu agente analítico de negocio. Tengo acceso en tiempo real a los datos de retención, horas pico y engagement de todos tus clientes.\n\n**Cada consulta queda registrada automáticamente** en el historial de interacciones. ¿Qué métrica quieres analizar hoy? Usa los botones de consulta rápida o hazme una pregunta directamente.',
     },
   ]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [loadingAction, setLoadingAction] = useState(null);
+  const [churnAlert, setChurnAlert] = useState(null); // Alerta de churn del servidor
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
   const { showError } = useErrorModal();
@@ -174,10 +308,15 @@ export default function AdminIAPage() {
     setMessages(prev => [...prev, { role: 'user', content: messageText }]);
     setInput('');
     setIsLoading(true);
+    setChurnAlert(null);
 
     try {
       const res = await api.post('/ai/admin-chat', { message: messageText });
       setMessages(prev => [...prev, { role: 'ai', content: res.data.reply }]);
+      // Mostrar alerta de churn si el backend la detecta
+      if (res.data.meta?.alerta_churn) {
+        setChurnAlert(res.data.meta.alerta);
+      }
     } catch (err) {
       showError(
         err.response?.data?.error || 'No se pudo contactar al agente NEXUS.',
@@ -246,75 +385,117 @@ export default function AdminIAPage() {
         </div>
       </div>
 
-      {/* ─── Quick Actions ──────────────────────────────────── */}
-      <div className="mb-3">
-        <p className="font-mono text-[10px] text-neutral-600 uppercase tracking-widest mb-2 flex items-center gap-1.5">
-          <Zap size={10} className="text-[#bf5af2]" /> Consultas Rápidas
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          {QUICK_ACTIONS.map((action) => {
-            const c = COLOR_MAP[action.color];
-            const isActive = loadingAction === action.id;
-            return (
-              <button
-                key={action.id}
-                id={`quick-action-${action.id}`}
-                onClick={() => handleQuickAction(action)}
-                disabled={isLoading || !!loadingAction}
-                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl border font-mono text-xs font-bold transition-all duration-300 text-left disabled:opacity-50 disabled:cursor-not-allowed ${c.bg} ${c.border} ${c.text} ${c.shadow} ${c.hoverBg} hover:shadow-lg`}
-              >
-                {isActive ? (
-                  <Loader2 size={14} className="animate-spin shrink-0" />
-                ) : (
-                  <action.icon size={14} className="shrink-0" />
-                )}
-                <span className="leading-tight">{action.emoji} {action.label}</span>
-                <ChevronRight size={12} className="ml-auto opacity-50" />
-              </button>
-            );
-          })}
+      {/* Churn Alert Banner */}
+      {churnAlert && (
+        <div className="mb-3 flex items-start gap-2 px-4 py-3 rounded-xl bg-[#ff2d78]/10 border border-[#ff2d78]/30 animate-fade-in">
+          <AlertTriangle size={16} className="text-[#ff2d78] shrink-0 mt-0.5" />
+          <p className="font-mono text-xs text-[#ff2d78]">{churnAlert}</p>
+          <button onClick={() => setChurnAlert(null)} className="ml-auto text-[#ff2d78]/50 hover:text-[#ff2d78]">
+            <XCircle size={14} />
+          </button>
         </div>
+      )}
+
+      {/* ─── Tabs ────────────────────────────────────────────── */}
+      <div className="flex gap-1 mb-3 p-1 bg-[#080808] rounded-xl border border-neutral-900">
+        {[
+          { id: 'chat',    label: 'Chat con NEXUS',      icon: BrainCircuit },
+          { id: 'history', label: 'Historial Guardado',  icon: History },
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg font-mono text-xs font-bold transition-all ${
+              activeTab === tab.id
+                ? 'bg-[#bf5af2]/15 text-[#bf5af2] border border-[#bf5af2]/30'
+                : 'text-neutral-600 hover:text-neutral-400'
+            }`}
+          >
+            <tab.icon size={13} />
+            {tab.label}
+          </button>
+        ))}
       </div>
 
-      {/* ─── Chat Messages ──────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto glass-card rounded-2xl border border-[#bf5af2]/20 p-4 mb-3 flex flex-col gap-4 shadow-[0_0_20px_#bf5af210] min-h-0">
-        {messages.map((msg, idx) => (
-          <MessageBubble key={idx} msg={msg} />
-        ))}
-        {isLoading && !loadingAction && (
-          <div className="flex gap-3 max-w-[85%] mr-auto">
-            <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 bg-[#bf5af2]/20 border border-[#bf5af2] text-[#bf5af2]">
-              <BrainCircuit size={16} />
-            </div>
-            <div className="p-3 rounded-2xl text-sm font-mono bg-[#0a0a0a] border border-[#bf5af2]/30 text-[#bf5af2] rounded-tl-none flex items-center gap-2">
-              <Loader2 size={14} className="animate-spin" />
-              NEXUS procesando datos...
+      {/* ─── Tab Content ─────────────────────────────────────── */}
+      {activeTab === 'history' ? (
+        <div className="flex-1 overflow-y-auto">
+          <HistoryPanel />
+        </div>
+      ) : (
+        <>
+          {/* ─── Quick Actions ──────────────────────────────────── */}
+          <div className="mb-3">
+            <p className="font-mono text-[10px] text-neutral-600 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+              <Zap size={10} className="text-[#bf5af2]" /> Consultas Rápidas
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {QUICK_ACTIONS.map((action) => {
+                const c = COLOR_MAP[action.color];
+                const isActive = loadingAction === action.id;
+                return (
+                  <button
+                    key={action.id}
+                    id={`quick-action-${action.id}`}
+                    onClick={() => handleQuickAction(action)}
+                    disabled={isLoading || !!loadingAction}
+                    className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl border font-mono text-xs font-bold transition-all duration-300 text-left disabled:opacity-50 disabled:cursor-not-allowed ${c.bg} ${c.border} ${c.text} ${c.shadow} ${c.hoverBg} hover:shadow-lg`}
+                  >
+                    {isActive ? (
+                      <Loader2 size={14} className="animate-spin shrink-0" />
+                    ) : (
+                      <action.icon size={14} className="shrink-0" />
+                    )}
+                    <span className="leading-tight">{action.emoji} {action.label}</span>
+                    <ChevronRight size={12} className="ml-auto opacity-50" />
+                  </button>
+                );
+              })}
             </div>
           </div>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
 
-      {/* ─── Input Form ─────────────────────────────────────── */}
-      <form onSubmit={handleSubmit} className="flex gap-2">
-        <input
-          ref={inputRef}
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Pregunta sobre tus métricas, clientes, estrategia de negocio..."
-          disabled={isLoading}
-          className="flex-1 bg-[#080808] text-white font-sans text-sm border border-[#bf5af2]/30 rounded-xl px-4 py-3 outline-none focus:border-[#bf5af2] focus:ring-1 focus:ring-[#bf5af2]/30 transition-all disabled:opacity-50 placeholder:text-neutral-700"
-        />
-        <button
-          type="submit"
-          id="nexus-send-btn"
-          disabled={!input.trim() || isLoading}
-          className="bg-[#bf5af2]/10 text-[#bf5af2] border border-[#bf5af2] hover:bg-[#bf5af2]/25 transition-all px-4 py-3 rounded-xl flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_10px_#bf5af233]"
-        >
-          <Send size={20} />
-        </button>
-      </form>
+          {/* ─── Chat Messages ──────────────────────────────────── */}
+          <div className="flex-1 overflow-y-auto glass-card rounded-2xl border border-[#bf5af2]/20 p-4 mb-3 flex flex-col gap-4 shadow-[0_0_20px_#bf5af210] min-h-0">
+            {messages.map((msg, idx) => (
+              <MessageBubble key={idx} msg={msg} />
+            ))}
+            {isLoading && !loadingAction && (
+              <div className="flex gap-3 max-w-[85%] mr-auto">
+                <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 bg-[#bf5af2]/20 border border-[#bf5af2] text-[#bf5af2]">
+                  <BrainCircuit size={16} />
+                </div>
+                <div className="p-3 rounded-2xl text-sm font-mono bg-[#0a0a0a] border border-[#bf5af2]/30 text-[#bf5af2] rounded-tl-none flex items-center gap-2">
+                  <Loader2 size={14} className="animate-spin" />
+                  NEXUS procesando datos...
+                </div>
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* ─── Input Form ─────────────────────────────────────── */}
+          <form onSubmit={handleSubmit} className="flex gap-2">
+            <input
+              ref={inputRef}
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Pregunta sobre tus métricas, clientes, estrategia de negocio..."
+              disabled={isLoading}
+              className="flex-1 bg-[#080808] text-white font-sans text-sm border border-[#bf5af2]/30 rounded-xl px-4 py-3 outline-none focus:border-[#bf5af2] focus:ring-1 focus:ring-[#bf5af2]/30 transition-all disabled:opacity-50 placeholder:text-neutral-700"
+            />
+            <button
+              type="submit"
+              id="nexus-send-btn"
+              disabled={!input.trim() || isLoading}
+              className="bg-[#bf5af2]/10 text-[#bf5af2] border border-[#bf5af2] hover:bg-[#bf5af2]/25 transition-all px-4 py-3 rounded-xl flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed shadow-[0_0_10px_#bf5af233]"
+            >
+              <Send size={20} />
+            </button>
+          </form>
+        </>
+      )}
     </div>
   );
 }
+

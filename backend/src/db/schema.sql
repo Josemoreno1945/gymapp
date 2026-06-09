@@ -110,3 +110,24 @@ CREATE INDEX IF NOT EXISTS idx_dias_semana         ON dias(semana_id);
 CREATE INDEX IF NOT EXISTS idx_dias_usuario        ON dias(usuario_id);
 CREATE INDEX IF NOT EXISTS idx_ejercicios_usuario  ON ejercicios(usuario_id);
 CREATE INDEX IF NOT EXISTS idx_dia_ejercicios_dia  ON dia_ejercicios(dia_id);
+
+-- ─── Tabla: agent_interactions ───────────────────────────────
+-- Registra cada interacción con el agente IA (ciclo completo: guarda dato)
+CREATE TABLE IF NOT EXISTS agent_interactions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    usuario_id      INTEGER,                                      -- NULL = consulta de admin sin usuario específico
+    agente_tipo     TEXT    NOT NULL CHECK(agente_tipo IN ('CLIENTE', 'ADMIN')),
+    mensaje_usuario TEXT    NOT NULL,                             -- Entrada del usuario
+    respuesta_ia    TEXT    NOT NULL,                             -- Salida del agente
+    intencion       TEXT    DEFAULT 'CONSULTA',                  -- CONSULTA | PEDIDO | RECLAMO | ALERTA | ANALISIS
+    accion_tomada   TEXT,                                         -- Descripción de acción concreta ejecutada
+    datos_contexto  TEXT,                                         -- JSON con datos usados como contexto (métricas, logs)
+    resuelto        INTEGER NOT NULL DEFAULT 1,                   -- 1=resuelto, 0=derivado a humano
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (usuario_id) REFERENCES usuarios(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_interactions_usuario  ON agent_interactions(usuario_id);
+CREATE INDEX IF NOT EXISTS idx_interactions_tipo     ON agent_interactions(agente_tipo);
+CREATE INDEX IF NOT EXISTS idx_interactions_fecha    ON agent_interactions(created_at);
+CREATE INDEX IF NOT EXISTS idx_interactions_intencion ON agent_interactions(intencion);
